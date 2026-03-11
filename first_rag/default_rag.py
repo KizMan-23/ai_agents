@@ -1,4 +1,3 @@
-import os
 from pathlib import Path
 from llama_index.embeddings.huggingface import HuggingFaceEmbedding
 
@@ -11,6 +10,8 @@ from llama_index.core import (
 )
 
 Settings.embed_model = HuggingFaceEmbedding(model_name="BAAI/bge-small-en-v1.5")
+Settings.llm = None
+
 BASE_DIR = Path(__file__).resolve().parent
 PERSIST_DIR = BASE_DIR / "storage"
 DATA_DIR = r"C:\Users\Hp Pc\Documents\HHRG-118-JU00-20240312-SD001.pdf"
