@@ -4,3 +4,5 @@ llama-index-llms-huggingface
 llama-index-embeddings-huggingface
 llama-index-embeddings-google-genai
 llama-index-llms-google-genai
+llama-index-llms-ollama
+llama-index-embeddings-ollama
