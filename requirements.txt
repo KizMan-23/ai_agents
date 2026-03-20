@@ -1,0 +1,8 @@
+langchain-core
+langchain-community
+langchain-text-splitters
+langchain-openai
+pypdf
+openai==1.93.3
+tiktoken==0.9.0
+rapidocr-onnxruntime==1.2.3
