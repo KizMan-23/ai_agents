@@ -1,3 +1,5 @@
-pymongo[srv]
+pymongo
 dotenv
 requests
+langchain_ollama
+langchain_core
