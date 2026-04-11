@@ -1,5 +1,7 @@
 pymongo
 dotenv
 requests
-langchain_ollama
-langchain_core
+langchain-ollama
+langchain-community
+langchain-mongodb
+langchain
