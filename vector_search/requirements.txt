@@ -6,5 +6,5 @@ langchain-community
 langchain-mongodb
 langchain
 tqdm
-unstructured[all-docs]
+unstructured[xlsx,pptx,pdf]
 openpyxl

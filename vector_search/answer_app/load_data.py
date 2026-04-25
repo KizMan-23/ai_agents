@@ -2,8 +2,6 @@ from pymongo import MongoClient
 from langchain_ollama import OllamaEmbeddings
 from langchain_mongodb import MongoDBAtlasVectorSearch
 from langchain_community.document_loaders import DirectoryLoader, UnstructuredExcelLoader
-# from langchain.llms import Qwen3
-# from langchain.chains import RetrievalQA
 import os
 import glob
 from dotenv import load_dotenv
@@ -28,9 +26,12 @@ loader = DirectoryLoader(
     loader_cls=UnstructuredExcelLoader, 
     loader_kwargs={"mode": "elements"},
     show_progress=True)
-data = loader.load()
 
+data = loader.load()
 
 embedding = OllamaEmbeddings(model="qwen3-embedding:8b", dimensions=1024)
 
 vector_store = MongoDBAtlasVectorSearch.from_documents(data, embedding, collection=collection)
+
+
+
