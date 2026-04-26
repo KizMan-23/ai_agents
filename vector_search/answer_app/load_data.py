@@ -29,7 +29,7 @@ loader = DirectoryLoader(
 
 data = loader.load()
 
-embedding = OllamaEmbeddings(model="qwen3-embedding:8b", dimensions=1024)
+embedding = OllamaEmbeddings(model="nomic-embed-text:latest", dimensions=768)
 
 vector_store = MongoDBAtlasVectorSearch.from_documents(data, embedding, collection=collection)
 
