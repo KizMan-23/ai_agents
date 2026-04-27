@@ -1,0 +1,13 @@
+
+chromadb,
+dotenv,
+flask,
+httpx,
+ipykernel,
+langchain,
+langchain-community,
+langchain-ollama,
+langchain-chroma,
+mcp,
+pypdf,
+

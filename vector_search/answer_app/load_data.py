@@ -1,9 +1,11 @@
 from pymongo import MongoClient
 from langchain_ollama import OllamaEmbeddings
 from langchain_mongodb import MongoDBAtlasVectorSearch
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.document_loaders import DirectoryLoader, UnstructuredExcelLoader
 import os
 import glob
+import tqdm
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -29,9 +31,31 @@ loader = DirectoryLoader(
 
 data = loader.load()
 
-embedding = OllamaEmbeddings(model="nomic-embed-text:latest", dimensions=768)
+text_splitter = RecursiveCharacterTextSplitter(
+    chunk_size=1500,   
+    chunk_overlap=200, 
+    separators=["\n\n","\n",".",","],
+    length_function=len 
+)
 
-vector_store = MongoDBAtlasVectorSearch.from_documents(data, embedding, collection=collection)
+split_docs = text_splitter.split_documents(data)
 
+print(f"Original docs: {len(data)} | After splitting: {len(split_docs)}")
+
+# Then use split_docs instead of data
+embedding = OllamaEmbeddings(model="nomic-embed-text:latest")
+
+print("Starting embedding and insert...")
+vector_store = MongoDBAtlasVectorSearch.from_documents(
+    split_docs, embedding, collection=collection, batch_size=50
+)
+
+
+#Manual batching process by 50
+# for i in tqdm(range(0, len(split_docs), 50), desc="Embedding & Inserting"):
+#     batch = split_docs[i:i+50]
+#     MongoDBAtlasVectorSearch.from_documents(
+#         batch, embedding, collection=collection
+#     )
 
 
