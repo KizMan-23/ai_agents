@@ -1,7 +1,6 @@
 import chromadb
 import httpx
-import ollama
-from langchain_community.document_loaders import DirectoryLoader, PyPDFLoader as pypdf
+from langchain_community.document_loaders import PyPDFLoader as pypdf
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from chromadb.utils.embedding_functions import OllamaEmbeddingFunction
 
