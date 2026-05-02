@@ -327,3 +327,70 @@ async def handle_get_prompt(name: str, arguments: dict[str, str] | None) -> GetP
                 )
             ]
         )
+    elif name == "extract_key_information":
+        """Get info_tyoe with a fallback default"""
+
+        info_type = arguments.get("info_type", "key information")
+
+        return GetPromptResult(
+            descriptioni=f"Extract all mentions of {info_type} from the document",
+            messages=[
+                PromptMessage(
+                    role='assistant',
+                    content=TextContent(
+                        type="text",
+                        text="I am a precise information extraction specialist with expertise in technical and biological documents"
+                    )
+                ),
+                PromptMessage(
+                    role='user',
+                    content=TextContent(
+                        type="text",
+                        text=f"""Based on the document section provided in the conversation, please extract all mentions of {info_type}.
+                        Format your response as a structured list with:
+                        1. Clear headers for each extracted element.
+                        2. Direct quotes or references when applicable.
+                        3. Brief explanations of significance where helpful.
+                        4. Page or section references if available.
+
+                        Be comprehensive but focus on quality over quantity. If no mention of the requested info_type is found, just return
+                        "No mention of {info_type} found"""
+                    )
+                )
+            ]
+        )
+    
+# ===========================================================
+# Run the MCP Server using stdio/stdout streams
+# ===========================================================
+
+async def main():
+    """Run the MCP server using stdio/stdout streams"""
+    #Get the distribution for versioning
+    try:
+        dist = metadata.distribution("document-search-mcp")
+        version = dist.version()
+    except:
+        version = "0.1.0"
+
+    async with stdio.stdio_server() as (read_stream, write_stream):
+        await server.run(
+            read_stream,
+            write_stream,
+            InitializationOptions(
+                server_name="document-search-mcp",
+                server_version=version,
+                capabilities=server.get_capabilities(
+                    notification_options=NotificationOptions(),
+                    experimental_capabilities={}
+                ),
+            ),
+        )
+
+# ===========================================================
+# Main Function
+# ===========================================================
+
+if __name__ == "__main__":
+    import asyncio
+    asyncio.run(main())
