@@ -234,3 +234,99 @@ class MCPClient:
     # ============================================================
     # Process a Query using llm Model and Available Tools
     # ============================================================
+    async def process_query(self, query: str) -> str:
+        """Process a query using Qwen model and available tools
+        Args:
+            query: The query to process
+        Result:
+            The response from the AI after processing the query
+        """
+        #Add user query to history
+        await self.add_to_history("user", query)
+        messages = []   
+        messages.append({
+            "role": "system",
+            "content": self.system_prompt
+        })
+
+        #We need to properly maintain the tool call sequence
+        #This means ensuring every 'tool' message follows an 'assistant' message with tool_calls
+        assistant_with_tool_calls = None
+        pending_tool_responses = []
+
+        #Track message indices to help with debugging
+        for i, msg in enumerate(self.message_history):
+            #Handle different message types
+            if msg['role'] == 'user':
+                #first flush any pending tool responses if needed
+                if assistant_with_tool_calls and pending_tool_responses:
+                    messages.append(assistant_with_tool_calls)
+                    messages.extend(pending_tool_responses)
+                    assistant_with_tool_calls = None
+                    pending_tool_responses = []
+
+                #Then add the user message
+                messages.append({
+                    "role": "user",
+                    "content": msg['content']
+                })
+            elif msg['role'] == "assistant":
+                #check if this is an assistant message with tool calls
+                metadata = msg.get('metadata', {})
+                if metadata.get('has_tool_calls', False):
+                    #If we already have a pending assistant with tool calls, flush it
+                    if assistant_with_tool_calls:
+                        messages.append(assistant_with_tool_calls)
+                        messages.extend(pending_tool_responses)
+                        pending_tool_responses = []
+                    
+                    #Store this assistant message for later (Unitl we collect all tool responses)
+                    assistant_with_tool_calls = {
+                        "role": "assistant",
+                        "content": msg['content'],
+                        "tool_calls": metadata.get('tool_calls', [])
+                    }
+                else:
+                    #Regular assistant message without tool calls
+                    #first flush any pending tool calls
+                    if assistant_with_tool_calls:
+                        messages.append(assistant_with_tool_calls)
+                        messages.extend(pending_tool_responses)
+                        assistant_with_tool_calls = None
+                        pending_tool_responses = []
+                    
+                    #Then add the regular assistant message
+                    messages.append({
+                        "role": "assistant",
+                        "content": msg['content']
+                    })
+
+            elif msg['role'] === 'system':
+                #System messages can be added directly
+                messages.append({
+                    "role": "system",
+                    "content": msg['content']
+                })
+            
+            elif msg['role'] == 'tool' and "tool_call_id" in msg.get("metadata", {}):
+                #Collect tool responses
+                if assistant_with_tool_calls:
+                    pending_tool_responses.append({
+                        "role": "tool",
+                        "tool_call_id" : msg['metadata']['tool_call_id'],
+                        "content": msg['content']
+                    })
+            
+        #Flush any remaining pending tool calls in at the end
+        if assistant_with_tool_calls:
+            messages.append(assistant_with_tool_calls)
+            messages.extend(pending_tool_responses)
+
+        if self.debug:
+            logger.info(f"Prepared {len(messages)} messages for Qwen3")
+            for i, msg in enumerate(messages):
+                role = msg['role']
+                has_tool_calls = 'tool_calls' in msg
+                preview = msg['content'][:50] + "..." if msg['content'] else ""
+                logger.info(f"Message {i}: {role} {'with tool_calls' if has_tool_calls else "(No tool_calls)"} - {preview}")
+        
