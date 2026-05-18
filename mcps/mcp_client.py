@@ -30,7 +30,7 @@ class MCPClient:
             debug: Whether to enable logging
         """
         #Initialize session and client obejcts
-        self.sessioin: Optional[ClientSession] = None
+        self.session: Optional[ClientSession] = None
         self.exit_stack = AsyncExitStack()
         self.debug = debug
         self.message_history = []
@@ -133,7 +133,7 @@ class MCPClient:
             "role": role,
             "content": content,
             "timestamp": asyncio.get_event_loop().time(), #WHY IS THIS KIND OF TIME USED HERE?
-            "metadat": metadata or {}
+            "metadata": metadata or {}
         }
         self.message_history.append(message)
 
@@ -177,7 +177,7 @@ class MCPClient:
 
             result = await self.session.read_resource(uri)
             if not result:
-                content = "No content fount for this resource"
+                content = "No content found for this resource"
             else:
                 content = result if isinstance(result, str) else str(result)
 
@@ -368,7 +368,7 @@ class MCPClient:
         tool_results = []
         final_text = []
 
-        assistant_message = response.choice[0].message
+        assistant_message = response.choices[0].message
         initial_response = assistant_message or ""
 
         #Add initial assistant response to history with metadata about tool calls
@@ -455,7 +455,7 @@ class MCPClient:
             #Get a new response from the llm with tool results
             try:
                 second_response = self.model.OllamaChat.create(
-                    model="Qwen3-8b",
+                    model="qwen3-8b",
                     messages=messages
                 )
 
@@ -608,7 +608,7 @@ class MCPClient:
 
                     try:
                         response = self.model.OllamaChat.completions.create(
-                            model="Qwen3-8b",
+                            model="qwen3-8b",
                             messages=llm_messages
                         )
 
@@ -618,7 +618,7 @@ class MCPClient:
                             content = msg.content.text if hasattr(msg.content, 'text') else str(msg.content)
                             await self.add_to_history("assistant", response_content)
                     except Exception as e:
-                        error_msg = f"\nError processinf prompt with Qwen3: {str(e)}"
+                        error_msg = f"\nError processing prompt with Qwen3: {str(e)}"
                         print(error_msg)
                     continue
 

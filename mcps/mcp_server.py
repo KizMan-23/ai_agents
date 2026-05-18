@@ -63,7 +63,7 @@ except Exception as e:
     logging.error(f"Error initializing components: {e}")
 
 # ===========================================================
-# Format search result helper functio for query_document tool
+# Format search result helper function for query_document tool
 # ===========================================================
 
 def format_search_result(document: str, distance: float, metadata: dict[str, object]= None) -> str:
