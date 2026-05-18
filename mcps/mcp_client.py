@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import sys
 from typing import Optional, List, Dict, Any
 from contextlib import AsyncExitStack
 from mcp import ClientSession, StdioServerParameters
@@ -577,6 +578,115 @@ class MCPClient:
                     #Process the prompt with the LLM and add to conversation
                     if not self.model:
                         print("Error: LLM model is not initialized. Cannot process prompts.")
+                        continue
+
+                    messages = prompt_result.messages
+
+                    #Convert message to OpenAI format and include relevant history
+                    llm_messages = []
+                    recent_messages = []
+
+                    for msg in reversed(self.message_history[-10:]):
+                        if msg['role'] in ['user', 'assistant'] and len(recent_messages) < 5:
+                            recent_messages.append({
+                                "role": msg.role,
+                                "content": msg['content']
+                            })
+
+                    #Add recent messages in correct order(Older first)
+                    llm_messages.extend(reversed(recent_messages))
+
+                    #Then add the prompt messages
+                    for msg in messages:
+                        content = msg.content.text if hasattr(msg.content, "text") else str(msg.content)
+                        llm_messages.append({
+                            "role": msg.role,
+                            "content": content
+                        })
+
+                    print("Processing prompt...")
+
+                    try:
+                        response = self.model.OllamaChat.completions.create(
+                            model="Qwen3-8b",
+                            messages=llm_messages
+                        )
+
+                        response_content = response.choices[0].message.content
+                        #Add the prompt and response to the conversation history
+                        for msg in messages:
+                            content = msg.content.text if hasattr(msg.content, 'text') else str(msg.content)
+                            await self.add_to_history("assistant", response_content)
+                    except Exception as e:
+                        error_msg = f"\nError processinf prompt with Qwen3: {str(e)}"
+                        print(error_msg)
+                    continue
+
+                #List Available tools
+                elif query.lower() == '/tools':
+                    print(f"\nAvailable Tools:")
+                    for tool in self.available_tools:
+                        print(f"   - {tool.name}")
+                        if tool.description:
+                            print(f"    {tool.description}")
+                    continue
+
+                #process regular queries
+                print("\nProcessing query...")
+                response = await self.process_query(query)
+                print("\n" + response)
+            
+            except Exception as e:
+                print(f"\n Error: {str(e)}")
+                if self.debug:
+                    import traceback
+                    traceback.print_exc()
+
+    # ===========================================
+    # Resource CleanUp
+    # ===========================================
+    async def cleanup(self):
+        """Clean up resources"""
+        if self.debug:
+            logger.info("Cleaning up client resources")
+        await self.exit_stack.aclose()
+
+# ===========================================
+# Main Function
+# ===========================================
+async def main():
+    """Run the MCP Client"""
+    
+    if len(sys.argv) < 2:
+        print("Usage: python client.py <path_to_server_script>")
+        sys.exit(1)
+    
+    #initialize client
+    server_script  = sys.argv[1]
+    client = MCPClient()
+
+    #connect to server
+    try:
+        connected = await client.connect_to_server(server_script)
+        if not connected:
+            print(f"Failed to connect to server at {server_script}")
+            sys.exit(1)
+        
+        await client.chat_loop()
+
+        #Handle other exceptions
+    except Exception as e:
+        print(f"Error: {str(e)}")
+        import traceback
+        traceback.print_exc()
+
+    #CleanUp resources
+    finally:
+        await client.cleanup()
+
+if __name__ == "__main__":
+    asyncio.run(main())
+
 
                     
 
