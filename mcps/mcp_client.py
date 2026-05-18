@@ -358,7 +358,7 @@ class MCPClient:
                 tool_choice="auto"
             )
         except Exception as e:
-            error_msg = f"Error calling Qwen Model: {str{e}}"
+            error_msg = f"Error calling Qwen Model: {str(e)}"
             logger.error(error_msg)
             await self.add_to_history("assistant", error_msg, {"error": True})
             return error_msg
@@ -387,79 +387,200 @@ class MCPClient:
                 logger.info(f"Tool calls requested: {len(assistant_message.tool_calls)} tool calls from the llm")
 
         #Add the assistant's message to the conversation
-        messages.append(
-            {
-                "role": "assistant",
-                "content": assistant_message.content,
-                "tool_calls": assistant_message.tool_calls
-            }
-        )
-
-        #Process each tool call
-        for tool_call in assistant_message.tool_calls:
-            tool_name = tool_call.function.name
-            tool_args = tool_call.function.arguments
-
-            #convert json string to dict if needed
-            if isinstance(tool_args, str):
-                try:
-                    tool_args = json.loads(tool_args)
-                except Exception as e:
-                    logger.warning(f"Failed to parse tool argument as JSON: {tool_args}")
-                    tool_args = {}
-
-            if self.debug:
-                logger.info(f"Executing tool: {tool_name}")
-                logger.info(f"Arguments: {tool_args}")
-
-            #Execute tool call on the server
-            try:
-                result = await self.session.call_tool(tool_name, tool_args)
-                tool_content = result.content if hasattr(result, 'content') else str(result)
-                tool_results.append({"call": tool_name, "result": tool_content[0].text})
-                final_text.append(f"\n[Calling tool {tool_name} with args {tool_args}]")
-
-                if self.debug:
-                    result_preview = tool_content[0].text[:100] + "..." if len(tool_content[0].text) > 100 else tool_content[0].text
-                    logger.info(f"Tool result preview: {result_preview}")
-                
-                #Add the tool result to the conversation
-                messages.append(
-                    {
-                        "role": "tool",
-                        "tool_call_id": tool_call.id,
-                        "content": tool_content[0].text
-                    }
-                )
-                await self.add_to_history("tool", tool_content[0].text,
-                    {
-                        "tool": tool_name,
-                        "args": tool_args,
-                        "tool_call_id": tool_call.id
-                    })
-            except Exception as e:
-                error_msg = f"Error executing tool {tool_name}: {str(e)}"
-                logger.error(error_msg)
-                messages.append({
-                    "role": "tool",
-                    "tool_call_id": tool_call.id,
-                    "content": error_msg
-                })
-                await self.add_to_history("tool", error_msg, {"tool": tool_name, "error": True, "tool_call_id": tool_call.id})
-                final_text.append(f"\n[Error executing tool {tool_name}:{str(e)}]")
-        
-        if self.debug:
-            logger.info("Getting final response from llm(Qwen3) with tool results")
-
-        #Get a new response from the llm with tool results
-        try:
-            second_response = self.model.OllamaChat.create(
-                model="Qwen3-8b",
-                messages=messages
+            messages.append(
+                {
+                    "role": "assistant",
+                    "content": assistant_message.content,
+                    "tool_calls": assistant_message.tool_calls
+                }
             )
 
-            response_content = second_response.choices[0].message.content or ""
-            await self.add_to_history("assistant", response_content)
-            final_text.append("\n" + response_content)
-        except Exception as e:
+            #Process each tool call
+            for tool_call in assistant_message.tool_calls:
+                tool_name = tool_call.function.name
+                tool_args = tool_call.function.arguments
+
+                #convert json string to dict if needed
+                if isinstance(tool_args, str):
+                    try:
+                        tool_args = json.loads(tool_args)
+                    except Exception as e:
+                        logger.warning(f"Failed to parse tool argument as JSON: {tool_args}")
+                        tool_args = {}
+
+                if self.debug:
+                    logger.info(f"Executing tool: {tool_name}")
+                    logger.info(f"Arguments: {tool_args}")
+
+                #Execute tool call on the server
+                try:
+                    result = await self.session.call_tool(tool_name, tool_args)
+                    tool_content = result.content if hasattr(result, 'content') else str(result)
+                    tool_results.append({"call": tool_name, "result": tool_content[0].text})
+                    final_text.append(f"\n[Calling tool {tool_name} with args {tool_args}]")
+
+                    if self.debug:
+                        result_preview = tool_content[0].text[:100] + "..." if len(tool_content[0].text) > 100 else tool_content[0].text
+                        logger.info(f"Tool result preview: {result_preview}")
+                    
+                    #Add the tool result to the conversation
+                    messages.append(
+                        {
+                            "role": "tool",
+                            "tool_call_id": tool_call.id,
+                            "content": tool_content[0].text
+                        }
+                    )
+                    await self.add_to_history("tool", tool_content[0].text,
+                        {
+                            "tool": tool_name,
+                            "args": tool_args,
+                            "tool_call_id": tool_call.id
+                        })
+                except Exception as e:
+                    error_msg = f"Error executing tool {tool_name}: {str(e)}"
+                    logger.error(error_msg)
+                    messages.append({
+                        "role": "tool",
+                        "tool_call_id": tool_call.id,
+                        "content": error_msg
+                    })
+                    await self.add_to_history("tool", error_msg, {"tool": tool_name, "error": True, "tool_call_id": tool_call.id})
+                    final_text.append(f"\n[Error executing tool {tool_name}:{str(e)}]")
             
+            if self.debug:
+                logger.info("Getting final response from llm(Qwen3) with tool results")
+
+            #Get a new response from the llm with tool results
+            try:
+                second_response = self.model.OllamaChat.create(
+                    model="Qwen3-8b",
+                    messages=messages
+                )
+
+                response_content = second_response.choices[0].message.content or ""
+                await self.add_to_history("assistant", response_content)
+                final_text.append("\n" + response_content)
+            except Exception as e:
+                error_msg = f"Error getting final response from Qwen3: {str(e)}"
+                logger.error(error_msg)
+                await self.add_to_history("assistant", error_msg, {"error": True})
+                final_text.append(f"\n[Error: {error_msg}]")
+
+        return "\n".join(final_text)
+    
+    # ===================================================
+    # Main Chat Loop
+    # ===================================================
+
+    async def chat_loop(self):
+        """Welcome to the RAG-AI-MCP Client!"""
+        print(f"\n{'='*15}")
+        print(f"RAG-AI-MCP Client Connected to: {self.server_name}")
+        print(f"{'='*15}")
+        print("Type your queries or use these commands:")
+        print(" /debug - Toggle debug mode")
+        print(" /refresh - Refresh server capabilities")
+        print(" /resources - List available resources")
+        print(" /resource <uri> - Read a specific resource")
+        print(" /prompts - List available prompts")
+        print(" /prompt <name> <argument> - Use a specific prompt with string as the argument")
+        print(" /tools - List available tools")
+        print(" /quit - Exit the Client")
+
+        while True:
+            try:
+                #Get user query
+                query = input("\nQuery: ").strip()
+
+                #Handle commands
+                if query.lower() == '/quit':
+                    break
+
+                #Toggle debug mode
+                elif query.lower() == '/debug':
+                    self.debug = not self.debug
+                    print(f"\nDebug mode {'enabled' if self.debug else 'disabled'}")
+                    continue
+
+                #Refresh server capabilities
+                elif query.lower() == '/refresh':
+                    await self.refresh_capabilities()
+                    print('\n Server capabilities refreshed')
+                    continue
+
+                #List Available resources
+                elif query.lower() == '/resources':
+                    resources = await self.list_resources()
+                    print("\nAvailable Resources:")
+                    for res in resources:
+                        print(f" - {res.uri}")
+                        if res.description:
+                            print(f"   {res.description}")
+                    continue
+
+                #Read content from a resource
+                elif query.lower().startswith('/resource '):
+                    uri = query[10:].strip()
+                    print(f"\nFetching resource: {uri}")
+                    content = await self.read_resource(uri)
+                    print(f"\nResource Content ({uri}):")
+                    print("------------------------------------------------")
+                    if len(content) > 500:
+                        print(content[:500] + "...")
+                        print("(Resource content truncated for display purpose but full content is included in message history)")
+                    else:
+                        print(content)
+                    continue
+
+                #List available Prompts
+                elif query.lower() == '/prompts':
+                    prompts = await self.list_prompts()
+                    print("\nAvailable Prompts:")
+                    for prompt in prompts:
+                        print(f" - {prompt.name}")
+                        if prompt.description:
+                            print(f"    {prompt.description}")
+                        if prompt.arguments:
+                            print(f"    Argument: {', '.join(arg.name for arg in prompt.arguments)}")
+                    continue
+                
+                #Run a specific prompt with arguments
+                elif query.lower().startswith("/prompt "):
+                    #parse: /prompt name sentence of args
+                    parts = query[8:].strip().split(maxsplit=1)
+                    if not parts:
+                        print("Error: Prompt name required")
+                        continue
+
+                    name = parts[0]
+                    arguments = {}
+
+                    if len(parts) > 1:
+                        arg_text = parts[1]
+
+                        #Get the prompt to check its expected arguments
+                        prompt_info = None
+                        for prompt in self.available_prompts:
+                            if prompt.name == name:
+                                prompt_info = prompt
+                                break
+
+                        if prompt_info and prompt_info.arguments and len(prompt_info.arguments) > 0:
+                            #use the first argument name as the key for the entire sentence
+                            arguments[prompt_info.arguments[0].name] = arg_text
+                        else:
+                            arguments['text'] = arg_text
+                    print(f"\nGetting prompt template: {name}")
+                    prompt_result = await self.get_prompt(name, arguments)
+
+                    #Process the prompt with the LLM and add to conversation
+                    if not self.model:
+                        print("Error: LLM model is not initialized. Cannot process prompts.")
+
+                    
+
+
+
+
+
