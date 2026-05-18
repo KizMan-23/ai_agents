@@ -137,7 +137,7 @@ class MCPClient:
         self.message_history.append(message)
 
         if self.debug:
-            logger.info(f"Added message to historu: {role} - {content[:100]}...")
+            logger.info(f"Added message to history: {role} - {content[:100]}...")
 
     # ============================================================
     # List Available Resources from the MCP Server
@@ -224,7 +224,7 @@ class MCPClient:
             logger.info(f"Getting Prompt: {name} with arguments: {arguments}")
 
         try:
-            prompt_result = await self.session.get_prompt(name, argurments)
+            prompt_result = await self.session.get_prompt(name, arguments)
             return prompt_result
         except Exception as e:
             error_msg = f"Error getting prompt {name}: {str(e)}"
@@ -301,7 +301,7 @@ class MCPClient:
                         "content": msg['content']
                     })
 
-            elif msg['role'] === 'system':
+            elif msg['role'] == 'system':
                 #System messages can be added directly
                 messages.append({
                     "role": "system",
@@ -323,10 +323,143 @@ class MCPClient:
             messages.extend(pending_tool_responses)
 
         if self.debug:
-            logger.info(f"Prepared {len(messages)} messages for Qwen3")
+            logger.info(f"Prepared {len(messages)} messages for LLM (Qwen3)")
             for i, msg in enumerate(messages):
                 role = msg['role']
                 has_tool_calls = 'tool_calls' in msg
                 preview = msg['content'][:50] + "..." if msg['content'] else ""
                 logger.info(f"Message {i}: {role} {'with tool_calls' if has_tool_calls else "(No tool_calls)"} - {preview}")
         
+        #Make sure we have the latest tools
+        if not self.available_tools:
+            await self.refresh_capabilities()
+
+        #Format tools for llm (Qwen3)
+        available_tools = [{
+            "type": "function",
+            "function": {
+                'name': tool.name,
+                'description': tool.description,
+                "parameters": tool.inputSchema
+            }
+        } for tool in self.available_tools ]
+
+        if self.debug:
+            tool_names = [tool['function']['name'] for tool in available_tools]
+            logger.info(f"Available tools for query: {tool_names}")
+            logger.info(f"Sending {len(messages)} messages to Qwen3")
+
+        #Initial LLM Call
+        try: #Sort this out into Qwen3 format
+            response = self.model.OllamaChat.create(
+                model="qwen3-8b",
+                messages=messages,
+                tools=available_tools,
+                tool_choice="auto"
+            )
+        except Exception as e:
+            error_msg = f"Error calling Qwen Model: {str{e}}"
+            logger.error(error_msg)
+            await self.add_to_history("assistant", error_msg, {"error": True})
+            return error_msg
+        
+        #Process response and handle tool calls
+        tool_results = []
+        final_text = []
+
+        assistant_message = response.choice[0].message
+        initial_response = assistant_message or ""
+
+        #Add initial assistant response to history with metadata about tool calls
+        tool_calls_metadata = {}
+        if assistant_message.tool_calls:
+            tool_calls_metadata = {
+                "has_tool_calls": True,
+                "tool_calls": assistant_message.tool_calls
+            }
+
+        await self.add_to_history("assistant", initial_response, tool_calls_metadata)
+        final_text.append(initial_response)
+
+        #Check if tool calls are present
+        if assistant_message.tool_calls:
+            if self.debug:
+                logger.info(f"Tool calls requested: {len(assistant_message.tool_calls)} tool calls from the llm")
+
+        #Add the assistant's message to the conversation
+        messages.append(
+            {
+                "role": "assistant",
+                "content": assistant_message.content,
+                "tool_calls": assistant_message.tool_calls
+            }
+        )
+
+        #Process each tool call
+        for tool_call in assistant_message.tool_calls:
+            tool_name = tool_call.function.name
+            tool_args = tool_call.function.arguments
+
+            #convert json string to dict if needed
+            if isinstance(tool_args, str):
+                try:
+                    tool_args = json.loads(tool_args)
+                except Exception as e:
+                    logger.warning(f"Failed to parse tool argument as JSON: {tool_args}")
+                    tool_args = {}
+
+            if self.debug:
+                logger.info(f"Executing tool: {tool_name}")
+                logger.info(f"Arguments: {tool_args}")
+
+            #Execute tool call on the server
+            try:
+                result = await self.session.call_tool(tool_name, tool_args)
+                tool_content = result.content if hasattr(result, 'content') else str(result)
+                tool_results.append({"call": tool_name, "result": tool_content[0].text})
+                final_text.append(f"\n[Calling tool {tool_name} with args {tool_args}]")
+
+                if self.debug:
+                    result_preview = tool_content[0].text[:100] + "..." if len(tool_content[0].text) > 100 else tool_content[0].text
+                    logger.info(f"Tool result preview: {result_preview}")
+                
+                #Add the tool result to the conversation
+                messages.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": tool_call.id,
+                        "content": tool_content[0].text
+                    }
+                )
+                await self.add_to_history("tool", tool_content[0].text,
+                    {
+                        "tool": tool_name,
+                        "args": tool_args,
+                        "tool_call_id": tool_call.id
+                    })
+            except Exception as e:
+                error_msg = f"Error executing tool {tool_name}: {str(e)}"
+                logger.error(error_msg)
+                messages.append({
+                    "role": "tool",
+                    "tool_call_id": tool_call.id,
+                    "content": error_msg
+                })
+                await self.add_to_history("tool", error_msg, {"tool": tool_name, "error": True, "tool_call_id": tool_call.id})
+                final_text.append(f"\n[Error executing tool {tool_name}:{str(e)}]")
+        
+        if self.debug:
+            logger.info("Getting final response from llm(Qwen3) with tool results")
+
+        #Get a new response from the llm with tool results
+        try:
+            second_response = self.model.OllamaChat.create(
+                model="Qwen3-8b",
+                messages=messages
+            )
+
+            response_content = second_response.choices[0].message.content or ""
+            await self.add_to_history("assistant", response_content)
+            final_text.append("\n" + response_content)
+        except Exception as e:
+            
