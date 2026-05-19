@@ -6,7 +6,8 @@ from typing import Optional, List, Dict, Any
 from contextlib import AsyncExitStack
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
-from langchain_ollama import OllamaLLM, ChatOllama
+from langchain_ollama import ChatOllama
+from langchain.messages import SystemMessage, HumanMessage, AIMessage
 
 
 # ============================================================
@@ -34,8 +35,8 @@ class MCPClient:
         self.exit_stack = AsyncExitStack()
         self.debug = debug
         self.message_history = []
-        self.system_prompt = "You are a helpful RAG AI assistant named 'RAG-AI-MCP' that can answer questions about the provided documents or query the attached database for more information."
-        self.model = OllamaLLM(name="qwen3-8b", temperature=0.7)
+        self.system_prompt = SystemMessage(content="You are a helpful RAG AI assistant named 'RAG-AI-MCP' that can answer questions about the provided documents or query the attached database for more information.")
+        self.model = ChatOllama(model="qwen3-8b", temperature=0.7, reasoning={"tool_calls": {"max_retries": 2}})
 
         # ============================================================
         # Server Connection info
@@ -251,7 +252,7 @@ class MCPClient:
         })
 
         #We need to properly maintain the tool call sequence
-        #This means ensuring every 'tool' message follows an 'assistant' message with tool_calls
+        #This means ensuring every 'tool' message follows an 'assistant(AI)' message with tool_calls
         assistant_with_tool_calls = None
         pending_tool_responses = []
 
@@ -272,7 +273,7 @@ class MCPClient:
                     "content": msg['content']
                 })
             elif msg['role'] == "assistant":
-                #check if this is an assistant message with tool calls
+                #check if this is an ai message with tool calls
                 metadata = msg.get('metadata', {})
                 if metadata.get('has_tool_calls', False):
                     #If we already have a pending assistant with tool calls, flush it
@@ -281,11 +282,11 @@ class MCPClient:
                         messages.extend(pending_tool_responses)
                         pending_tool_responses = []
                     
-                    #Store this assistant message for later (Unitl we collect all tool responses)
+                    #Store this ai message for later (Unitl we collect all tool responses)
                     assistant_with_tool_calls = {
                         "role": "assistant",
                         "content": msg['content'],
-                        "tool_calls": metadata.get('tool_calls', [])
+                        "tool_calls": metadata.get('tool_calls', {})
                     }
                 else:
                     #Regular assistant message without tool calls
@@ -352,52 +353,47 @@ class MCPClient:
 
         #Initial LLM Call
         try: #Sort this out into Qwen3 format
-            response = self.model.OllamaChat.create(
-                model="qwen3-8b",
-                messages=messages,
-                tools=available_tools,
-                tool_choice="auto"
-            )
+            ai_response = self.model.bind_tools(available_tools).invoke(messages)
         except Exception as e:
             error_msg = f"Error calling Qwen Model: {str(e)}"
             logger.error(error_msg)
             await self.add_to_history("assistant", error_msg, {"error": True})
             return error_msg
         
-        #Process response and handle tool calls
+        #Process response and handle tool calls from ai messages
         tool_results = []
         final_text = []
 
-        assistant_message = response.choices[0].message
-        initial_response = assistant_message or ""
+        ai_message = ai_response.content[0] if isinstance(ai_response.content, list) else ai_response.content
+        initial_response = ai_message or ""
 
-        #Add initial assistant response to history with metadata about tool calls
+        #Add initial ai response to history with metadata about tool calls
         tool_calls_metadata = {}
-        if assistant_message.tool_calls:
+        if ai_response.tool_calls:
             tool_calls_metadata = {
                 "has_tool_calls": True,
-                "tool_calls": assistant_message.tool_calls
+                "tool_calls": ai_response.tool_calls
             }
 
-        await self.add_to_history("assistant", initial_response, tool_calls_metadata)
+        await self.add_to_history("assistant", initial_response, tool_calls_metadata) #first ai message added to the history
         final_text.append(initial_response)
 
-        #Check if tool calls are present
-        if assistant_message.tool_calls:
+        #Check if tool calls are present and parse the tools
+        if ai_response.tool_calls:
             if self.debug:
-                logger.info(f"Tool calls requested: {len(assistant_message.tool_calls)} tool calls from the llm")
+                logger.info(f"Tool calls requested: {len(ai_response.tool_calls)} tool calls from the llm")
 
         #Add the assistant's message to the conversation
             messages.append(
                 {
                     "role": "assistant",
-                    "content": assistant_message.content,
-                    "tool_calls": assistant_message.tool_calls
+                    "content": ai_message,
+                    "tool_calls": ai_response.tool_calls
                 }
             )
 
             #Process each tool call
-            for tool_call in assistant_message.tool_calls:
+            for tool_call in ai_response.tool_calls:
                 tool_name = tool_call.function.name
                 tool_args = tool_call.function.arguments
 
@@ -410,14 +406,13 @@ class MCPClient:
                         tool_args = {}
 
                 if self.debug:
-                    logger.info(f"Executing tool: {tool_name}")
-                    logger.info(f"Arguments: {tool_args}")
-
+                    logger.info(f"Executing tool: {tool_name} with Arguments {tool_args}")
+        
                 #Execute tool call on the server
                 try:
                     result = await self.session.call_tool(tool_name, tool_args)
                     tool_content = result.content if hasattr(result, 'content') else str(result)
-                    tool_results.append({"call": tool_name, "result": tool_content[0].text})
+                    tool_results.append({"call": tool_name, "result": tool_content[0].text}) #.text might be a bug...
                     final_text.append(f"\n[Calling tool {tool_name} with args {tool_args}]")
 
                     if self.debug:
@@ -454,12 +449,9 @@ class MCPClient:
 
             #Get a new response from the llm with tool results
             try:
-                second_response = self.model.OllamaChat.create(
-                    model="qwen3-8b",
-                    messages=messages
-                )
+                second_response = self.model.bind_tools(available_tools).invoke(messages)
 
-                response_content = second_response.choices[0].message.content or ""
+                response_content = second_response.content[0] if isinstance(second_response.content, list) else second_response.content or ""
                 await self.add_to_history("assistant", response_content)
                 final_text.append("\n" + response_content)
             except Exception as e:
@@ -607,12 +599,9 @@ class MCPClient:
                     print("Processing prompt...")
 
                     try:
-                        response = self.model.OllamaChat.completions.create(
-                            model="qwen3-8b",
-                            messages=llm_messages
-                        )
+                        response = self.model.bind_tools(self.available_tools).invoke(llm_messages)
 
-                        response_content = response.choices[0].message.content
+                        response_content = response.content[0] if isinstance(response.content, list) else response.content
                         #Add the prompt and response to the conversation history
                         for msg in messages:
                             content = msg.content.text if hasattr(msg.content, 'text') else str(msg.content)

@@ -226,7 +226,7 @@ async def handle_read_resource(uri: str):
     
     resource_type = path_parts[2]
     if resource_type != "pdf":
-        raise ValueError(f"Unsupported resource type: {resource_type}")
+        raise ValueError(f"Unsupported resource type (must be a .pdf file): {resource_type}")
     
     document_name = path_parts[3]
 
@@ -330,7 +330,7 @@ async def handle_get_prompt(name: str, arguments: dict[str, str] | None) -> GetP
     elif name == "extract_key_information":
         """Get info_tyoe with a fallback default"""
 
-        info_type = arguments.get("info_type", "key information")
+        info_type = arguments.get("info_type", "key_information")
 
         return GetPromptResult(
             descriptioni=f"Extract all mentions of {info_type} from the document",
