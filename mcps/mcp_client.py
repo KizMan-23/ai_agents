@@ -364,7 +364,7 @@ class MCPClient:
         tool_results = []
         final_text = []
 
-        ai_message = ai_response.content[0] if isinstance(ai_response.content, list) else ai_response.content
+        ai_message = ai_response.content
         initial_response = ai_message or ""
 
         #Add initial ai response to history with metadata about tool calls
@@ -394,8 +394,8 @@ class MCPClient:
 
             #Process each tool call
             for tool_call in ai_response.tool_calls:
-                tool_name = tool_call.function.name
-                tool_args = tool_call.function.arguments
+                tool_name = tool_call['name']
+                tool_args = tool_call['arguments']
 
                 #convert json string to dict if needed
                 if isinstance(tool_args, str):
@@ -411,8 +411,13 @@ class MCPClient:
                 #Execute tool call on the server
                 try:
                     result = await self.session.call_tool(tool_name, tool_args)
-                    tool_content = result.content if hasattr(result, 'content') else str(result)
-                    tool_results.append({"call": tool_name, "result": tool_content[0].text}) #.text might be a bug...
+                    if hasattr(result, "content") and result.content:
+                        tool_content = "\n".join(
+                            [part.text if hasattr(part, "text") else str(part) for part in result.content]
+                            )
+                    else:
+                        tool_content = str(result)
+                    tool_results.append({"call": tool_name, "result": tool_content})
                     final_text.append(f"\n[Calling tool {tool_name} with args {tool_args}]")
 
                     if self.debug:
@@ -424,10 +429,10 @@ class MCPClient:
                         {
                             "role": "tool",
                             "tool_call_id": tool_call.id,
-                            "content": tool_content[0].text
+                            "content": tool_content
                         }
                     )
-                    await self.add_to_history("tool", tool_content[0].text,
+                    await self.add_to_history("tool", tool_content,
                         {
                             "tool": tool_name,
                             "args": tool_args,
@@ -451,7 +456,7 @@ class MCPClient:
             try:
                 second_response = self.model.bind_tools(available_tools).invoke(messages)
 
-                response_content = second_response.content[0] if isinstance(second_response.content, list) else second_response.content or ""
+                response_content = second_response.content or ""
                 await self.add_to_history("assistant", response_content)
                 final_text.append("\n" + response_content)
             except Exception as e:
@@ -595,17 +600,17 @@ class MCPClient:
                             "role": msg.role,
                             "content": content
                         })
-
+                        await self.add_to_history(msg.role, content, {"is_prompt_message": True, "prompt_name": name})
                     print("Processing prompt...")
 
                     try:
                         response = self.model.bind_tools(self.available_tools).invoke(llm_messages)
 
-                        response_content = response.content[0] if isinstance(response.content, list) else response.content
+                        response_content = response.content or ""
+
                         #Add the prompt and response to the conversation history
-                        for msg in messages:
-                            content = msg.content.text if hasattr(msg.content, 'text') else str(msg.content)
-                            await self.add_to_history("assistant", response_content)
+                        await self.add_to_history("assistant", response_content)
+                        print("\n" + response_content)
                     except Exception as e:
                         error_msg = f"\nError processing prompt with Qwen3: {str(e)}"
                         print(error_msg)

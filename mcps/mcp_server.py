@@ -117,7 +117,7 @@ async def handle_list_tools() -> list[Tool]:
 # Handle Tool execution requests
 # ===========================================================
 
-@server.call_tools()
+@server.call_tool()
 async def handle_call_tool(name: str, arguments: dict | None) -> list[TextContent | ImageContent | EmbeddedResource]:
     """"Handle tool execution requests."""
 
