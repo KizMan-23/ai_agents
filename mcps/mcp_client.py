@@ -2,12 +2,12 @@ import asyncio
 import json
 import logging
 import sys
-from typing import Optional, List, Dict, Any
+from typing import Optional, Dict, Any
 from contextlib import AsyncExitStack
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 from langchain_ollama import ChatOllama
-from langchain.messages import SystemMessage, HumanMessage, AIMessage
+from langchain.messages import SystemMessage
 
 
 # ============================================================
@@ -35,8 +35,8 @@ class MCPClient:
         self.exit_stack = AsyncExitStack()
         self.debug = debug
         self.message_history = []
-        self.system_prompt = SystemMessage(content="You are a helpful RAG AI assistant named 'RAG-AI-MCP' that can answer questions about the provided documents or query the attached database for more information.")
-        self.model = ChatOllama(model="qwen3-8b", temperature=0.7, reasoning={"tool_calls": {"max_retries": 2}})
+        self.system_prompt = "You are a helpful RAG AI assistant named 'RAG-AI-MCP' that can answer questions about the provided documents or query the attached database for more information."
+        self.model = ChatOllama(model="qwen3:8b", temperature=0.7, reasoning=True)
 
         # ============================================================
         # Server Connection info
@@ -121,7 +121,7 @@ class MCPClient:
     # ============================================================
     # Handling Message History Helper Function
     # ============================================================
-    async def add_to_history(self, role: str, content: str, metadata: Dict[str, Any] = None):
+    async def add_to_history(self, role: str, content: Any, metadata: Dict[str, Any] = None):
         """Add a message to the history
         
         Args:
@@ -129,10 +129,12 @@ class MCPClient:
             content: The message content
             metadata: Optional metadata about the message
         """
+        if hasattr(content, 'content'):
+            content = content.content if hasattr(content.content, 'text') else str(content.content)
         #Format Message
         message={
             "role": role,
-            "content": content,
+            "content": str(content),
             "timestamp": asyncio.get_event_loop().time(), #WHY IS THIS KIND OF TIME USED HERE?
             "metadata": metadata or {}
         }
@@ -473,9 +475,9 @@ class MCPClient:
 
     async def chat_loop(self):
         """Welcome to the RAG-AI-MCP Client!"""
-        print(f"\n{'='*15}")
+        print(f"\n{'='*50}")
         print(f"RAG-AI-MCP Client Connected to: {self.server_name}")
-        print(f"{'='*15}")
+        print(f"{'='*50}")
         print("Type your queries or use these commands:")
         print(" /debug - Toggle debug mode")
         print(" /refresh - Refresh server capabilities")
